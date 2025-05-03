@@ -1,80 +1,63 @@
 pipeline {
     agent any
+
     environment {
-        DOCKERHUB_USERNAME = 'akashchandran'
-        DOCKER_IMAGE = "${DOCKERHUB_USERNAME}/py-application"
-        DOCKERHUB_TOKEN = credentials('docker-hub-credential')
+        PYTHON_ENV = 'venv'
     }
 
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                // Checkout the code from the repository and specify the branch
+                git branch: 'main', url: 'https://github.com/AkashChand6n/Py-application.git'
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Setup') {
             steps {
-                sh '''
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements.txt
-                '''
+                script {
+                    // Create a virtual environment and install dependencies
+                    sh 'python3 -m venv $PYTHON_ENV'
+                    sh '. $PYTHON_ENV/bin/activate && pip install --upgrade pip'
+                    sh '. $PYTHON_ENV/bin/activate && pip install -r requirements.txt'
+                }
             }
         }
 
-        stage('Unit Test with Coverage') {
+        stage('Lint') {
             steps {
-                sh '''
-                    . venv/bin/activate
-                    coverage run -m pytest
-                    coverage report
-                    coverage html
-                '''
+                script {
+                    // Run flake8 for linting
+                    sh '. $PYTHON_ENV/bin/activate && flake8 --exclude=venv .'
+                }
             }
         }
 
-        stage('Archive Coverage Report') {
+        stage('Test') {
             steps {
-                publishHTML(target: [
-                    allowMissing: false,
-                    alwaysLinkToLastBuild: true,
-                    keepAll: true,
-                    reportDir: 'htmlcov',
-                    reportFiles: 'index.html',
-                    reportName: 'Code Coverage Report'
-                ])
+                script {
+                    // Run pytest for testing
+                    sh '. $PYTHON_ENV/bin/activate && pytest --maxfail=1 --disable-warnings -q'
+                }
             }
         }
 
-        stage('Build and Push Docker Image') {
-            when {
-                branch 'main'
-            }
+        stage('Publish Coverage') {
             steps {
-                sh """
-                    echo ${DOCKERHUB_TOKEN} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin
-                    docker build -t ${DOCKER_IMAGE} .
-                    docker push ${DOCKER_IMAGE}
-                """
-            }
-        }
-
-        stage('Deploy to Kubernetes') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh 'kubectl apply -f deployment.yaml'
-                sh 'kubectl apply -f service.yaml'
+                script {
+                    // Run coverage report generation
+                    sh '. $PYTHON_ENV/bin/activate && coverage run -m pytest'
+                    sh '. $PYTHON_ENV/bin/activate && coverage report'
+                    sh '. $PYTHON_ENV/bin/activate && coverage html'  // To generate the HTML report (optional)
+                }
             }
         }
     }
 
     post {
         always {
-            sh 'docker logout || true'
+            // Clean up the workspace after the job is complete
+            cleanWs()
         }
     }
 }
