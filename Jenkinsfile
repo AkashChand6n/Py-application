@@ -4,15 +4,15 @@ pipeline {
         DOCKERHUB_USERNAME = 'akashchandran'
         DOCKER_IMAGE = "${DOCKERHUB_USERNAME}/py-application"
         DOCKERHUB_TOKEN = credentials('docker-hub-credential')
-        SONARQUBE_TOKEN = credentials('SonarQb')
-        SONARQUBE_URL = 'http://34.239.141.95:9000'
     }
+
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
+
         stage('Install Dependencies') {
             steps {
                 sh '''
@@ -23,30 +23,31 @@ pipeline {
                 '''
             }
         }
-        stage('Unit Test') {
+
+        stage('Unit Test with Coverage') {
             steps {
                 sh '''
                     . venv/bin/activate
-                    pytest
+                    coverage run -m pytest
+                    coverage report
+                    coverage html
                 '''
             }
         }
-        stage('SonarQube Analysis') {
+
+        stage('Archive Coverage Report') {
             steps {
-                withSonarQubeEnv('SonarQb') {
-                    script {
-                        def scannerHome = tool 'sonar-scanner'
-                        sh """
-                            ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=py-application \
-                                -Dsonar.sources=. \
-                                -Dsonar.host.url=$SONARQUBE_URL \
-                                -Dsonar.login=$SONARQUBE_TOKEN
-                        """
-                    }
-                }
+                publishHTML(target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: 'htmlcov',
+                    reportFiles: 'index.html',
+                    reportName: 'Code Coverage Report'
+                ])
             }
         }
+
         stage('Build and Push Docker Image') {
             when {
                 branch 'main'
@@ -59,6 +60,7 @@ pipeline {
                 """
             }
         }
+
         stage('Deploy to Kubernetes') {
             when {
                 branch 'main'
@@ -69,6 +71,7 @@ pipeline {
             }
         }
     }
+
     post {
         always {
             sh 'docker logout || true'
